@@ -1,0 +1,2 @@
+
+pip install fastapi sqlalchemy psycopg2 gitpython pymongo uvicorn
