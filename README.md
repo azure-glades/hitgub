@@ -15,3 +15,10 @@ repo-manager/
 ├── requirements.txt
 └── .env
 ```
+
+Start app with:
+```
+uvicorn app.main:app --reload --port 8080
+```
+
+Visit http://localhost:8080/docs to vie* endpoints
