@@ -1,9 +1,9 @@
 # tables are defined as objects here
 
-from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, Enum, ForeignKey
+from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, Enum, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship, declarative_base, func
 from datetime import datetime
-
+import enum
 Base = declarative_base()
 
 # enum
