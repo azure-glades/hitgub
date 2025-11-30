@@ -1,10 +1,9 @@
+# pydantic schemas / dtos
 from pydantic import BaseModel
-
 
 class RepoCreate(BaseModel):
     reponame: str
     maintainer_id : int
-
 
 class RepoResponse(BaseModel):
     repo_id: int
@@ -13,11 +12,11 @@ class RepoResponse(BaseModel):
     class Config:
         from_attributes=True
 
+
 class UserCreate(BaseModel):
     username : str
     email: str
     password: str
-
 
 class UserResponse(BaseModel):
     user_id : int

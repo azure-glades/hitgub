@@ -7,7 +7,7 @@ def create_user(db,user):
     db.refresh(actual_user)
     return actual_user
 
-def get_user(db,user_id)
+def get_user(db,user_id):
     temp=db.query(User).filter(User.user_id==user_id).first()
     return temp
 
@@ -23,6 +23,6 @@ def get_repo_by_name(db,reponame):
     return temp
 
 
-def get_repo_by_id(db,repo_id)
+def get_repo_by_id(db,repo_id):
     temp=db.query(Repository).filter(Repository.repo_id==repo_id)
     return temp
