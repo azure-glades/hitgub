@@ -1,7 +1,9 @@
 from typing import Optional
 from sqlalchemy.orm import Session
+
 from .models import User, Repository
 from .json_dto import UserCreate, UserResponse, RepoCreate, RepoResponse
+from .git_ops import init_bare
 import bcrypt
 
 def create_user(db : Session ,user : UserCreate) -> User:
@@ -16,13 +18,23 @@ def get_user(db,username) -> Optional[User]:
     return db.query(User).filter(User.username==username).first()
 
 # ~~~
-def create_repo(db,repo):
-    actual_repo=Repository(reponame=repo.reponame, maintainer_id=repo.maintainer_id)
-    db.add(actual_repo)
-    db.commit()
-    db.refresh(actual_repo)
-    # chore: add a git operation to init a repo in tmp/repos
-    return actual_repo
+def create_repo(db: Session, repo_in: RepoCreate) -> Repository:
+    db_repo = Repository(
+        reponame=repo_in.reponame,
+        maintainer_id=repo_in.maintainer_id
+    )
+    try:
+        init_bare(db_repo.reponame)
+    except FileExistsError:
+        raise ValueError("Repository folder already exists on disk")
+    try:
+        db.add(db_repo)
+        db.commit()
+        db.refresh(db_repo)
+        return db_repo
+    except Exception as e:
+        db.rollback()
+        raise e
 
 def get_repo_by_name(db,reponame) -> Optional[Repository]:
     temp=db.query(Repository).filter(Repository.reponame==reponame).first()
