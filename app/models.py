@@ -1,7 +1,7 @@
 # tables are defined as objects here
 
-from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, Enum, ForeignKey, UniqueConstraint
-from sqlalchemy.orm import relationship, declarative_base, func
+from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, Enum, ForeignKey, UniqueConstraint, func
+from sqlalchemy.orm import relationship, declarative_base
 from datetime import datetime
 import enum
 Base = declarative_base()
@@ -52,7 +52,7 @@ class Repository(Base):
     __tablename__ = "repository"
     repo_id = Column(Integer, primary_key=True, index=True)
     reponame = Column(String, index=True, nullable=False)
-    maintainer_id = Column(Integer, ForeignKey("users.user_id"), nullable=False)
+    maintainer_id = Column(Integer, ForeignKey("user.user_id"), nullable=False)
     fork_of_id = Column(Integer, ForeignKey("repository.repo_id"), nullable=True)
 
     # relationship
@@ -121,7 +121,7 @@ class Issue(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint("repo_id", "issue_num") # uniquesness
+        UniqueConstraint("repo_id", "issue_num"), # uniquesness
     )
 
 class AccessLog(Base):
@@ -140,5 +140,5 @@ class AccessLog(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint("repo_id", "log_no") # uniquesness
+        UniqueConstraint("repo_id", "log_no"), # uniquesness
     )

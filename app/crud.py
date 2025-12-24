@@ -1,7 +1,7 @@
-from models import User, Repository
 from typing import Optional
 from sqlalchemy.orm import Session
-from schemas import UserCreate, UserResponse, RepoCreate, RepoResponse
+from .models import User, Repository
+from .json_dto import UserCreate, UserResponse, RepoCreate, RepoResponse
 import bcrypt
 
 def create_user(db : Session ,user : UserCreate) -> User:
@@ -12,9 +12,8 @@ def create_user(db : Session ,user : UserCreate) -> User:
     db.refresh(actual_user)
     return actual_user
 
-def get_user(db,user_id) -> Optional[User]:
-    temp=db.query(User).filter(User.user_id==user_id).first()
-    return temp
+def get_user(db,username) -> Optional[User]:
+    return db.query(User).filter(User.username==username).first()
 
 # ~~~
 def create_repo(db,repo):
