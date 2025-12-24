@@ -36,9 +36,6 @@ main.py sends info to crud.py using json data transfer objects (DTOs) who's sche
 dependency injection into crud.py is done using dependencies.py
 models.py has all the tables as objects/models
 
-What is done:
-models.py
+to add:
 
-crud.py
-schemas.py
 
