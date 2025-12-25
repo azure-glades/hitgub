@@ -1,3 +1,4 @@
 /tmp
 /.venv
 /app/__pycache__/
+/app/ignore.py

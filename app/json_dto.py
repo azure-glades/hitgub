@@ -15,6 +15,10 @@ class RepoResponse(BaseModel):
     class Config:
         from_attributes=True
 
+class RepoItem(BaseModel):
+    repo_id: int
+    reponame: str
+    maintainer_name: str
 # ~~~
 class UserCreate(BaseModel):
     username : str
@@ -81,3 +85,7 @@ class IssueItem(BaseModel):
 class IssuePage(BaseModel):
     meta: PageMeta
     items: list[IssueItem]
+
+class RepoPage(BaseModel):
+    meta: PageMeta
+    items: list[RepoItem]

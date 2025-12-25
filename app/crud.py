@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from math import ceil
 from .models import User, Repository, Issue
-from .json_dto import UserCreate, UserResponse, RepoCreate, RepoResponse, IssueCreate, IssueDetailResponse, IssuePage, IssueItem, PageMeta
+from .json_dto import UserCreate, UserResponse, RepoCreate, RepoResponse, IssueCreate, IssueDetailResponse, IssuePage, IssueItem, PageMeta, RepoPage, RepoItem
 from .git_ops import init_bare
 from .mongo_store import create_issue_doc, add_comment, get_issue
 import bcrypt
@@ -42,6 +42,30 @@ def create_repo(db: Session, repo_in: RepoCreate) -> Repository:
     except Exception as e:
         db.rollback()
         raise e
+
+def list_repos(db: Session, page: int = 1, size: int = 20) -> RepoPage:
+    offset = (page - 1) * size
+    total  = db.query(func.count(Repository.repo_id)).scalar()
+    rows   = (db.query(Repository, User.username)
+                .join(User, User.user_id == Repository.maintainer_id)
+                .order_by(Repository.repo_id.desc())
+                .offset(offset)
+                .limit(size)
+                .all())
+
+    pages = ceil(total / size) if total else 1
+
+    return RepoPage(
+        meta=PageMeta(page=page, size=size, total_size=total, total_pages=pages),
+        items=[
+            RepoItem(
+                repo_id=repo.repo_id,
+                reponame=repo.reponame,
+                maintainer_name=username
+            )
+            for repo, username in rows
+        ]
+    )
 
 def get_repo_by_name(db,reponame) -> Optional[Repository]:
     temp=db.query(Repository).filter(Repository.reponame==reponame).first()
