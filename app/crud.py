@@ -3,8 +3,9 @@ from typing import Optional
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+from math import ceil
 from .models import User, Repository, Issue
-from .json_dto import UserCreate, UserResponse, RepoCreate, RepoResponse, IssueCreate, IssueDetailResponse
+from .json_dto import UserCreate, UserResponse, RepoCreate, RepoResponse, IssueCreate, IssueDetailResponse, IssuePage, IssueItem, PageMeta
 from .git_ops import init_bare
 from .mongo_store import create_issue_doc, add_comment, get_issue
 import bcrypt
@@ -68,7 +69,7 @@ def create_issue(db: Session,
     db.add(db_issue)
     db.flush()
 
-    mongo_id = create_issue_doc(db_issue.issue_num, issue_in.title, author_name)
+    mongo_id = create_issue_doc(db_issue.issue_num, issue_in.title, issue_in.body, author_name)
     db_issue.nosql_thread_id = str(mongo_id)
 
     db.commit()
@@ -87,6 +88,9 @@ def append_comment(db: Session,
 
     author = db.query(User).filter_by(user_id=author_id).one()
     add_comment(issue_obj.nosql_thread_id, author.username, body)
+    issue_obj.updated_at = func.now() # -> set last-updated field
+    db.commit()
+    db.refresh(issue_obj)
     return issue_obj
 
 def get_issue_thread(db: Session,
@@ -102,6 +106,25 @@ def get_issue_thread(db: Session,
         issue_num=issue_num,
         title=issue_obj.title,
         author_id=issue_obj.author_id,
+        body=thread_doc['body'],
         created_at=issue_obj.created_at,
         comments=thread_doc['comments']
+    )
+
+def list_issues(db: Session,
+                repo_id: int,
+                page: int = 1,
+                size: int = 20) -> IssuePage:
+    offset = (page - 1) * size
+    total = db.query(func.count(Issue.issue_num)).filter_by(repo_id=repo_id).scalar()
+    rows = (db.query(Issue)
+              .filter_by(repo_id=repo_id)
+              .order_by(Issue.created_at.desc())
+              .offset(offset)
+              .limit(size)
+              .all())
+    pages = ceil(total / size) if total else 1
+    return IssuePage(
+        meta=PageMeta(page=page, size=size, total_size=total, total_pages=pages),
+        items=[IssueItem.model_validate(r) for r in rows]
     )

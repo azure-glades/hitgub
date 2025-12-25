@@ -18,7 +18,7 @@ repo-manager/
 
 Start app with:
 ```
-uvicorn app.main:app --reload --port 8080
+uvicorn app.main:app --reload --log-level=debug --port 8080
 ```
 
 Visit http://localhost:8080/docs to vie* endpoints

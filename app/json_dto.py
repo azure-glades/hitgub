@@ -1,7 +1,8 @@
 # pydantic schemas / dtos
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
+
 
 class RepoCreate(BaseModel):
     reponame: str
@@ -51,10 +52,32 @@ class CommentItem(BaseModel):
     body: str
     timestamp: datetime
 
+# to see issue and its comment thread
 class IssueDetailResponse(BaseModel):
     repo_id: int
     issue_num: int
     title: str
     author_id: int
+    body: str
     created_at: datetime
     comments: list[CommentItem]
+
+# issue page
+class PageMeta(BaseModel):
+    page: int
+    size: int
+    total_size: int
+    total_pages: int
+
+# issue details in the page that shows all issues
+class IssueItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    issue_num: int
+    title: str
+    author_id: int
+    status: str
+    created_at: datetime
+# issue page
+class IssuePage(BaseModel):
+    meta: PageMeta
+    items: list[IssueItem]

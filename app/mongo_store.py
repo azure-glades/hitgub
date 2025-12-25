@@ -5,11 +5,12 @@ from bson import ObjectId
 client = MongoClient("mongodb://localhost:27017")
 db = client["issue_threads"]
 
-def create_issue_doc(issue_id: int, title: str, author: str) -> str:
+def create_issue_doc(issue_id: int, title: str, body: str, author: str) -> str:
     doc = {
         "issue_id": issue_id,
         "title": title,
         "author": author,
+        "body": body,
         "created_at": datetime.now(timezone.utc),
         "comments": []
     }

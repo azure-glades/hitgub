@@ -14,6 +14,10 @@ class Action(enum.Enum):
     FORK    = "fork"
     DELETE  = "delete"
 
+class IssueStatus(enum.Enum):
+    OPEN = "open"
+    CLOSED = "closed"
+
 # ternary relationship "access"
 user_repo_roles = Table(
     'user_repo_roles',
@@ -100,6 +104,7 @@ class Issue(Base):
     title = Column(String)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    status = Column(Enum(IssueStatus), default=IssueStatus.OPEN, nullable=False, index=True)
 
     nosql_thread_id = Column(String)  # mongoDB object id
 
