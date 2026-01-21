@@ -52,3 +52,13 @@ def verify_git_access(repo_name: str, user: models.User = Depends(get_current_us
         raise HTTPException(status_code=403, detail="Access denied to repository")
     
     return user
+
+def require_tier(*allowed: models.UserTier):
+    def _check(user: models.User = Depends(get_current_user)):
+        if user.tier not in allowed:
+            raise HTTPException(403, detail="Insufficient privilege")
+        return user
+    return _check
+
+require_admin    = require_tier(models.UserTier.admin)
+require_dev_up   = require_tier(models.UserTier.admin, models.UserTier.developer)

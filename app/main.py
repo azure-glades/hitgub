@@ -12,9 +12,9 @@ from .crud import get_issue_thread
 from .dependency_injector import get_db
 from .database_sessions import engine
 from .git_ops import get_repo_path
-
-from .json_dto import RepoCreate, IssueCreate, CommentCreate, IssueDetailResponse, IssuePage, RepoPage, RoleCreate, RoleResponse, AccessGrant, AccessRevoke
-from .models import Role
+from .json_dto import RepoCreate, IssueCreate, CommentCreate, IssueDetailResponse, IssuePage, RepoPage, RoleCreate, RoleResponse, AccessGrant, AccessRevoke, UserPage, UserItem, UserTierUpdate, UserResponse
+from .models import Role, UserTier, User
+from .auth import require_admin, require_dev_up
 
 app = FastAPI(title="Private Repo Manager")
 models.Base.metadata.create_all(bind=engine)
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 # repo endpoints
 # making new repository
-@app.post("/repos", response_model=json_dto.RepoResponse, tags=["repos"])
+@app.post("/repos", response_model=json_dto.RepoResponse, dependencies=[Depends(require_dev_up)],tags=["repos"])
 def init_repo(payload: RepoCreate, 
               db: Session = Depends(get_db),
               current_user: models.User = Depends(auth.get_current_user)):
@@ -53,7 +53,7 @@ def new_issue(repo_id: int,
     return crud.create_issue(db=db, repo_id=repo_id, author_id=current_user.user_id, issue_in=payload)
 
 # adding a comment to issue
-@app.post("/repos/{repo_id}/issues/{issue_num}/comments")
+@app.post("/repos/{repo_id}/issues/{issue_num}/comments", tags=["repos"])
 def add_comment(repo_id: int,
                 issue_num: int,
                 payload: CommentCreate,
@@ -63,14 +63,14 @@ def add_comment(repo_id: int,
     return {"reply": "comment added"}
 
 # opening and viewing an issue thread
-@app.get("/repos/{repo_id}/issues/{issue_num}", response_model=IssueDetailResponse)
+@app.get("/repos/{repo_id}/issues/{issue_num}", response_model=IssueDetailResponse, tags=["repos"])
 def read_issue(repo_id: int,
                issue_num: int,
                db: Session = Depends(get_db),
                current_user: models.User = Depends(auth.verify_repo_access)): # Assuming viewing also requires access
     return get_issue_thread(db, repo_id, issue_num)
 # view all issue
-@app.get("/repos/{repo_id}/issues", response_model=IssuePage)
+@app.get("/repos/{repo_id}/issues", response_model=IssuePage, tags=["repos"])
 def read_issues(repo_id: int,
                 page: int = Query(1, ge=1),
                 size: int = Query(20, ge=1, le=100),
@@ -88,8 +88,28 @@ def create_user(user: json_dto.UserCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Username exists")
     return crud.create_user(db, user)
 
+@app.get("/users", response_model=UserPage, tags=["users"])
+def get_users(page: int = Query(1, ge=1),
+              size: int = Query(20, ge=1, le=100),
+              db: Session = Depends(get_db),
+              current_user: models.User = Depends(require_admin)):  # only admins
+    return crud.list_users(db, page, size)
+
+@app.patch("/users/{user_id}/tier", response_model=UserResponse, tags=["users"])
+def update_user_tier(
+    user_id: int,
+    payload: UserTierUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_admin)   # only admins
+):
+    try:
+        updated = crud.change_user_tier(db, user_id, UserTier(payload.tier))
+    except ValueError as e:
+        raise HTTPException(404, detail=str(e))
+    return updated
+
 # GIT ENDPOINTS ~~~
-@app.get("/{repo_name:path}.git/info/refs")
+@app.get("/{repo_name:path}.git/info/refs", tags=["git"])
 async def git_info_refs(repo_name: str, service: str, 
                         user: models.User = Depends(auth.verify_git_access)):
     """
@@ -176,7 +196,7 @@ async def git_info_refs(repo_name: str, service: str,
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
 
-@app.post("/{repo_name:path}.git/git-upload-pack")
+@app.post("/{repo_name:path}.git/git-upload-pack", tags=["git"])
 async def git_upload_pack(repo_name: str, request: Request,
                           user: models.User = Depends(auth.verify_git_access)):
     """
@@ -210,7 +230,7 @@ async def git_upload_pack(repo_name: str, request: Request,
         raise HTTPException(status_code=500, detail=f"Upload pack failed: {str(e)}")
 
 
-@app.post("/{repo_name}.git/git-receive-pack")
+@app.post("/{repo_name}.git/git-receive-pack", tags=["git"])
 async def git_receive_pack(repo_name: str, request: Request,
                            user: models.User = Depends(auth.verify_git_access)):
     """
@@ -245,7 +265,7 @@ async def git_receive_pack(repo_name: str, request: Request,
 
 
 # ROLE endpoints
-@app.post("/roles", response_model=RoleResponse, status_code=201)
+@app.post("/roles", response_model=RoleResponse, dependencies=[Depends(require_admin)],status_code=201, tags=["roles"])
 def new_role(payload: RoleCreate, db: Session = Depends(get_db)):
     try:
         role = crud.create_role(db, payload.rolename)
@@ -253,11 +273,11 @@ def new_role(payload: RoleCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=409, detail=str(e))
     return role
 
-@app.get("/roles", response_model=list[RoleResponse])
+@app.get("/roles", response_model=list[RoleResponse], tags=["roles"])
 def get_roles(db: Session = Depends(get_db)):
     return crud.list_roles(db)
 
-@app.post("/access", status_code=201)
+@app.post("/access", dependencies=[Depends(require_admin)],status_code=201, tags=["roles"])
 def grant_access_endpoint(payload: AccessGrant, 
                           db: Session = Depends(get_db),
                           current_user: models.User = Depends(auth.get_current_user)):
@@ -273,7 +293,7 @@ def grant_access_endpoint(payload: AccessGrant,
         raise HTTPException(409, detail=str(e))
     return {"msg": "access granted"}
 
-@app.delete("/access")
+@app.delete("/access", dependencies=[Depends(require_admin)], tags=["roles"])
 def revoke_access_endpoint(payload: AccessRevoke,
                            role_id: int | None = Query(None, description="Optional: remove only this role"),
                            db: Session = Depends(get_db),
@@ -288,6 +308,28 @@ def revoke_access_endpoint(payload: AccessRevoke,
     if deleted == 0:
         raise HTTPException(404, detail="Access relationship not found")
     return {"msg": f"{deleted} access row(s) removed"}
+
 @app.get("/health")
 def health_check():
     return {"status": str(get_repo_path("repo1"))}
+
+def seed_roles(db: Session):
+    defaults = ["admin", "developer", "tester"]
+    for name in defaults:
+        if not db.query(Role).filter_by(rolename=name).first():
+            db.add(Role(rolename=name))
+    db.commit()
+
+    root = db.query(User).filter_by(username="root").first()
+    if not root:
+        db.add(User(username="root",
+                    email="root@local",
+                    password_hash=crud.hash_pwd("admin123"),
+                    tier=UserTier.admin))
+    else:
+         # Ensure root is always admin
+         if root.tier != UserTier.admin:
+             root.tier = UserTier.admin
+             db.add(root)
+    db.commit()
+seed_roles(next(get_db()))

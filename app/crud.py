@@ -4,15 +4,15 @@ from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import Session
 from sqlalchemy import func, delete
 from math import ceil
-from .models import User, Repository, Issue, Role, user_repo_roles
-from .json_dto import UserCreate, UserResponse, RepoCreate, RepoResponse, IssueCreate, IssueDetailResponse, IssuePage, IssueItem, PageMeta, RepoPage, RepoItem
+from .models import User, Repository, Issue, Role, user_repo_roles, UserTier
+from .json_dto import UserCreate, UserResponse, RepoCreate, RepoResponse, IssueCreate, IssueDetailResponse, IssuePage, IssueItem, PageMeta, RepoPage, RepoItem, UserItem, UserPage, UserTierUpdate
 from .git_ops import init_bare
 from .mongo_store import create_issue_doc, add_comment, get_issue
 import bcrypt
 
-def create_user(db : Session ,user : UserCreate) -> User:
+def create_user(db : Session ,user : UserCreate, tier: UserTier = UserTier.developer) -> User:
     hashed = hash_pwd(user.password)
-    actual_user=User(username=user.username, email=user.email, password_hash=hashed)
+    actual_user=User(username=user.username, email=user.email, password_hash=hashed, tier= tier)
     db.add(actual_user)
     db.commit()
     db.refresh(actual_user)
@@ -24,6 +24,39 @@ def get_user_by_name(db,username) -> Optional[User]:
 def get_user_by_id(db, user_id) -> Optional[User]:
     return db.query(User).filter(User.user_id==user_id).first()
 
+def list_users(db: Session, page: int = 1, size: int = 20) -> UserPage:
+    offset = (page - 1) * size
+    total = db.query(func.count(User.user_id)).scalar()
+    rows = (db.query(User)
+              .order_by(User.user_id.desc())
+              .offset(offset)
+              .limit(size)
+              .all())
+    pages = ceil(total / size) if total else 1
+    return UserPage(
+        meta=PageMeta(page=page, size=size, total_size=total, total_pages=pages),
+        items=[
+            UserItem(
+                    user_id=r.user_id,
+                    username=r.username,
+                    email=r.email,
+                    tier=r.tier.value          # enum → string
+            )
+            for r in rows
+        ]
+    )
+
+def change_user_tier(db: Session, user_id: int, new_tier: UserTier) -> User:
+    if user_id == 1 and new_tier != UserTier.admin:
+        raise ValueError("Cannot demote root user")
+    
+    user = db.query(User).filter_by(user_id=user_id).first()
+    if not user:
+        raise ValueError("User not found")
+    user.tier = new_tier
+    db.commit()
+    db.refresh(user)
+    return user
 # ~~~
 def create_repo(db: Session, repo_in: RepoCreate) -> Repository:
     db_repo = Repository(
