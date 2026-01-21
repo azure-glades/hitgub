@@ -13,7 +13,8 @@ from .dependency_injector import get_db, fake_current_user
 from .database_sessions import engine
 from .git_ops import get_repo_path
 
-from .json_dto import RepoCreate, IssueCreate, CommentCreate, IssueDetailResponse, IssuePage, RepoPage
+from .json_dto import RepoCreate, IssueCreate, CommentCreate, IssueDetailResponse, IssuePage, RepoPage, RoleCreate, RoleResponse, AccessGrant, AccessRevoke
+from .models import Role
 
 app = FastAPI(title="Private Repo Manager")
 models.Base.metadata.create_all(bind=engine)
@@ -233,6 +234,36 @@ async def git_receive_pack(repo_name: str, request: Request):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Receive pack failed: {str(e)}")
 
+
+# ROLE endpoints
+@app.post("/roles", response_model=RoleResponse, status_code=201)
+def new_role(payload: RoleCreate, db: Session = Depends(get_db)):
+    try:
+        role = crud.create_role(db, payload.rolename)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return role
+
+@app.get("/roles", response_model=list[RoleResponse])
+def get_roles(db: Session = Depends(get_db)):
+    return crud.list_roles(db)
+
+@app.post("/access", status_code=201)
+def grant_access_endpoint(payload: AccessGrant, db: Session = Depends(get_db)):
+    try:
+        crud.grant_access(db, payload.user_id, payload.repo_id, payload.role_id)
+    except ValueError as e:
+        raise HTTPException(409, detail=str(e))
+    return {"msg": "access granted"}
+
+@app.delete("/access")
+def revoke_access_endpoint(payload: AccessRevoke,
+                           role_id: int | None = Query(None, description="Optional: remove only this role"),
+                           db: Session = Depends(get_db)):
+    deleted = crud.revoke_access(db, payload.user_id, payload.repo_id, role_id)
+    if deleted == 0:
+        raise HTTPException(404, detail="Access relationship not found")
+    return {"msg": f"{deleted} access row(s) removed"}
 @app.get("/health")
 def health_check():
     return {"status": str(get_repo_path("repo1"))}

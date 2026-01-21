@@ -1,7 +1,7 @@
 # pydantic schemas / dtos
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class RepoCreate(BaseModel):
@@ -89,3 +89,23 @@ class IssuePage(BaseModel):
 class RepoPage(BaseModel):
     meta: PageMeta
     items: list[RepoItem]
+
+
+# ~~~ Role
+class RoleCreate(BaseModel):
+    rolename: str = Field(min_length=1, max_length=50)
+
+class RoleResponse(BaseModel):
+    model_config= ConfigDict(from_attributes=True)
+    role_id: int
+    rolename: str
+
+# ~~~ role-repo-user i.e access
+class AccessGrant(BaseModel):
+    user_id: int
+    repo_id: int
+    role_id: int
+
+class AccessRevoke(BaseModel):
+    user_id: int
+    repo_id: int

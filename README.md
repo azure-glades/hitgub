@@ -21,7 +21,7 @@ Start app with:
 uvicorn app.main:app --reload --log-level=debug --port 8080
 ```
 
-Visit http://localhost:8080/docs to vie* endpoints
+Visit http://localhost:8080/docs to view endpoints
 
 ## Some renames:
 schemas.py -> json_dto.py
@@ -36,6 +36,24 @@ main.py sends info to crud.py using json data transfer objects (DTOs) who's sche
 dependency injection into crud.py is done using dependencies.py
 models.py has all the tables as objects/models
 
+
+what is done:
+make repo, get repos
+open issue to repo
+display issues of repo and view a specific repo
+view comments in issue of repo
+git clone and push
+health/status check
+make user
+
 to add:
-Nothing
+Token based auth
+UI
+
+
 New feature
+
+
+server.ip/repo.git
+
+join user, repo, role

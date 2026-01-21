@@ -2,9 +2,9 @@ from typing import Optional
 
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, delete
 from math import ceil
-from .models import User, Repository, Issue
+from .models import User, Repository, Issue, Role, user_repo_roles
 from .json_dto import UserCreate, UserResponse, RepoCreate, RepoResponse, IssueCreate, IssueDetailResponse, IssuePage, IssueItem, PageMeta, RepoPage, RepoItem
 from .git_ops import init_bare
 from .mongo_store import create_issue_doc, add_comment, get_issue
@@ -152,3 +152,41 @@ def list_issues(db: Session,
         meta=PageMeta(page=page, size=size, total_size=total, total_pages=pages),
         items=[IssueItem.model_validate(r) for r in rows]
     )
+
+# ~~~ role and access
+def create_role(db: Session, name: str) -> Role:
+    if db.query(Role).filter_by(rolename=name).first():
+        raise ValueError("Role already exists")
+    role = Role(rolename=name)
+    db.add(role)
+    db.commit()
+    db.refresh(role)
+    return role
+
+def list_roles(db: Session) -> list[Role]:
+    return db.query(Role).order_by(Role.rolename).all()
+
+def grant_access(db: Session, user_id: int, repo_id: int, role_id: int) -> None:
+    # ensure FK rows exist (optional integrity check)
+    exists = db.query(user_repo_roles).filter_by(
+        user_id=user_id, repo_id=repo_id, role_id=role_id
+    ).first()
+    if exists:
+        raise ValueError("Access relationship already exists")
+    db.execute(
+        user_repo_roles.insert(),
+        {"user_id": user_id, "repo_id": repo_id, "role_id": role_id}
+    )
+    db.commit()
+
+def revoke_access(db: Session, user_id: int, repo_id: int, role_id: int | None = None) -> int:
+    """Returns number of rows deleted (0 = nothing)."""
+    stmt = delete(user_repo_roles).where(
+        (user_repo_roles.c.user_id == user_id) &
+        (user_repo_roles.c.repo_id == repo_id)
+    )
+    if role_id is not None:
+        stmt = stmt.where(user_repo_roles.c.role_id == role_id)
+    result = db.execute(stmt)
+    db.commit()
+    return result
