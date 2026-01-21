@@ -18,6 +18,11 @@ class IssueStatus(enum.Enum):
     OPEN = "open"
     CLOSED = "closed"
 
+class UserTier(str, enum.Enum):
+    admin    = "admin"
+    developer = "developer"
+    tester   = "tester"
+
 # ternary relationship "access"
 user_repo_roles = Table(
     'user_repo_roles',
@@ -34,6 +39,7 @@ class User(Base):
     username = Column(String, unique=True, index=True)
     email = Column(String, unique=True, index=True)
     password_hash = Column(String)
+    tier = Column(Enum(UserTier), default=UserTier.developer, nullable=False)
 
     # relationships
     maintained_repos = relationship(

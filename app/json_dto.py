@@ -3,6 +3,12 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+# basic dto
+class PageMeta(BaseModel):
+    page: int
+    size: int
+    total_size: int
+    total_pages: int
 
 class RepoCreate(BaseModel):
     reponame: str
@@ -29,9 +35,23 @@ class UserResponse(BaseModel):
     user_id : int
     username: str
     email: str
+    tier: str
 
     class Config:
         from_attributes=True
+
+class UserItem(BaseModel):
+    user_id: int
+    username: str
+    email: str
+    tier: str 
+
+class UserPage(BaseModel):
+    meta: PageMeta
+    items: list[UserItem]
+
+class UserTierUpdate(BaseModel):
+    tier: str = Field(pattern="^(admin|developer|tester)$")
 
 # ~~~
 class IssueCreate(BaseModel):
@@ -67,12 +87,6 @@ class IssueDetailResponse(BaseModel):
     comments: list[CommentItem]
 
 # issue page
-class PageMeta(BaseModel):
-    page: int
-    size: int
-    total_size: int
-    total_pages: int
-
 # issue details in the page that shows all issues
 class IssueItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
