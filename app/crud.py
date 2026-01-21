@@ -190,3 +190,10 @@ def revoke_access(db: Session, user_id: int, repo_id: int, role_id: int | None =
     result = db.execute(stmt)
     db.commit()
     return result
+
+def check_user_repo_access(db: Session, user_id: int, repo_id: int) -> bool:
+    """Check if user has ANY role on the repo."""
+    row = db.query(user_repo_roles).filter_by(
+        user_id=user_id, repo_id=repo_id
+    ).first()
+    return row is not None

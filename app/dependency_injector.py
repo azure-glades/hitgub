@@ -11,6 +11,4 @@ def get_db() -> Generator[Session, None, None]:
     finally:
         db.close()                   # always returned to pool
 
-def fake_current_user() -> int:
-    """Hard-coded user 1 until real auth is wired."""
-    return 5
+
