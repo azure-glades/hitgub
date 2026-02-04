@@ -212,6 +212,80 @@ def create_comments(issues, users):
                 
             sleep(0.5)
 
+def setup_roles():
+    """Create the required roles (owner, developer, tester)."""
+    print("🔐 Setting up roles...")
+    auth_header = get_auth_header("root", "admin123")
+    
+    roles = ["owner", "developer", "tester"]
+    for role_name in roles:
+        try:
+            response = requests.post(
+                f"{API_BASE}/roles",
+                json={"rolename": role_name},
+                headers=auth_header,
+                timeout=10
+            )
+            
+            if response.status_code == 201 or response.status_code == 409:  # 409 means already exists
+                print(f"   ✅ Role '{role_name}' ensured")
+            else:
+                print(f"   ⚠️  Role '{role_name}' setup returned {response.status_code}")
+                
+        except requests.exceptions.RequestException as e:
+            print(f"   ⚠️  Failed to setup role '{role_name}': {e}")
+    
+    sleep(0.5)
+
+def grant_developer_access(repo_name, user, dev_user, auth_header):
+    """Grant a developer role to a user on a repository."""
+    # First, get roles to find the developer role ID
+    try:
+        roles_response = requests.get(f"{API_BASE}/roles", timeout=10)
+        if roles_response.status_code != 200:
+            print(f"      ⚠️  Could not fetch roles: {roles_response.status_code}")
+            return
+        
+        roles = roles_response.json()
+        dev_role = next((r for r in roles if r['rolename'] == 'developer'), None)
+        if not dev_role:
+            print(f"      ⚠️  Developer role not found")
+            return
+        
+        # Get the repo to find its ID
+        repos_response = requests.get(f"{API_BASE}/repos?size=1", timeout=10)
+        if repos_response.status_code != 200:
+            print(f"      ⚠️  Could not fetch repos: {repos_response.status_code}")
+            return
+        
+        repos = repos_response.json()['items']
+        repo = next((r for r in repos if r['reponame'] == repo_name), None)
+        if not repo:
+            print(f"      ⚠️  Repo {repo_name} not found")
+            return
+        
+        # Grant access
+        response = requests.post(
+            f"{API_BASE}/access",
+            json={
+                "user_id": dev_user["user_id"],
+                "repo_id": repo['repo_id'],
+                "role_id": dev_role['role_id']
+            },
+            headers=auth_header,
+            timeout=10
+        )
+        
+        if response.status_code == 201 or response.status_code == 409:
+            print(f"      ✅ Granted developer access: {dev_user['username']} -> {repo_name}")
+        else:
+            print(f"      ⚠️  Failed to grant access: {response.status_code}")
+            
+    except requests.exceptions.RequestException as e:
+        print(f"      ⚠️  Failed to grant access: {e}")
+    
+    sleep(0.3)
+
 def check_server():
     """Check if the CornHub server is running."""
     try:
@@ -237,6 +311,9 @@ def main():
     print(f"✅ Server is running on {API_BASE}")
     
     try:
+        # Setup roles
+        setup_roles()
+        
         # Create demo data
         users = create_users()
         if not users:
@@ -247,6 +324,36 @@ def main():
         if not repos:
             print("❌ Failed to create any repositories. Exiting.")
             sys.exit(1)
+        
+        # Grant developer access: Let alice and bob be developers on some repos
+        print("\n👥 Setting up repository members...")
+        admin_header = get_auth_header("admin", "admin123")
+        alice = next((u for u in users if u['username'] == 'alice'), None)
+        bob = next((u for u in users if u['username'] == 'bob'), None)
+        
+        if alice and repos:
+            # Alice is developer on repo 0 and 1
+            for i in [0, 1]:
+                if i < len(repos):
+                    # Need to manually add user_id to alice dict if not present
+                    if 'user_id' not in alice:
+                        # Fetch user info from server
+                        auth = get_auth_header(alice['username'], alice['password'])
+                        me_resp = requests.get(f"{API_BASE}/auth/me", headers=auth, timeout=10)
+                        if me_resp.status_code == 200:
+                            alice['user_id'] = me_resp.json()['user_id']
+                    if 'user_id' in alice:
+                        grant_developer_access(repos[i]['reponame'], None, alice, admin_header)
+        
+        if bob and repos:
+            # Bob is developer on repo 2
+            if 'user_id' not in bob:
+                auth = get_auth_header(bob['username'], bob['password'])
+                me_resp = requests.get(f"{API_BASE}/auth/me", headers=auth, timeout=10)
+                if me_resp.status_code == 200:
+                    bob['user_id'] = me_resp.json()['user_id']
+            if 'user_id' in bob and len(repos) > 2:
+                grant_developer_access(repos[2]['reponame'], None, bob, admin_header)
             
         issues = create_issues(repos, users)
         if issues:

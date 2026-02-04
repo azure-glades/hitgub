@@ -220,6 +220,36 @@ def create_user(user: json_dto.UserCreate, db: Session = Depends(get_db)):
 def get_current_user_info(current_user: models.User = Depends(auth.get_current_user)):
     return current_user
 
+@app.get("/user/my-repos", tags=["repos"])
+def get_user_repos(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    """Get all repos the user has access to (owned, developer, or tester), with their role."""
+    all_repos = db.query(models.Repository).all()
+    
+    user_repos = []
+    for repo in all_repos:
+        # Check user's role in this repo
+        role = crud.get_user_repo_role(db, current_user.user_id, repo.repo_id)
+        
+        # If user is owner, role is None but we treat them as owner
+        if repo.maintainer_id == current_user.user_id:
+            role = "owner"
+        elif role is None:
+            # User has no explicit role, default to tester
+            role = "tester"
+        
+        user_repos.append({
+            "repo_id": repo.repo_id,
+            "reponame": repo.reponame,
+            "maintainer_id": repo.maintainer_id,
+            "maintainer_name": repo.maintainer.username if repo.maintainer else "unknown",
+            "role": role
+        })
+    
+    return {"repos": user_repos}
+
 @app.get("/users", response_model=UserPage, tags=["users"])
 def get_users(page: int = Query(1, ge=1),
               size: int = Query(20, ge=1, le=100),
@@ -383,10 +413,17 @@ async def git_receive_pack(repo_name: str, request: Request,
     This is where the actual packfile transfer happens for push.
     Client sends new commits/objects, we update the repository.
     """
-    # Get repo from database to log the action
+    # Get repo from database to check permissions and log the action
     from .dependency_injector import get_db as _get_db
     db = next(_get_db())
     repo = crud.get_repo_by_name(db, repo_name)
+    
+    # Check push access: only owner and developer roles can push
+    if repo and not crud.can_push_repo(db, user.user_id, repo.repo_id):
+        raise HTTPException(
+            status_code=403, 
+            detail="Push access denied. Only repository owner and developers can push."
+        )
     
     # Log push action
     if repo:
@@ -433,15 +470,23 @@ def new_role(payload: RoleCreate, db: Session = Depends(get_db)):
 def get_roles(db: Session = Depends(get_db)):
     return crud.list_roles(db)
 
-@app.post("/access", dependencies=[Depends(require_admin)],status_code=201, tags=["roles"])
+@app.post("/access", status_code=201, tags=["roles"])
 def grant_access_endpoint(payload: AccessGrant, 
                           db: Session = Depends(get_db),
                           current_user: models.User = Depends(auth.get_current_user)):
     repo = crud.get_repo_by_id(db, payload.repo_id)
     if not repo:
         raise HTTPException(404, detail="Repository not found")
-    if repo.maintainer_id != current_user.user_id:
-        raise HTTPException(403, detail="Only the maintainer can grant access")
+    
+    # Debug logging
+    logger.info(f"Grant access attempt: repo_id={payload.repo_id}, maintainer_id={repo.maintainer_id}, current_user_id={current_user.user_id}, current_user_tier={current_user.tier}")
+    
+    # Allow repo owner or admin to grant access
+    is_owner = repo.maintainer_id == current_user.user_id
+    is_admin = current_user.tier == models.UserTier.admin
+    
+    if not (is_owner or is_admin):
+        raise HTTPException(403, detail="Only the repository owner or admin can grant access")
         
     try:
         crud.grant_access(db, payload.user_id, payload.repo_id, payload.role_id)
@@ -449,7 +494,7 @@ def grant_access_endpoint(payload: AccessGrant,
         raise HTTPException(409, detail=str(e))
     return {"msg": "access granted"}
 
-@app.delete("/access", dependencies=[Depends(require_admin)], tags=["roles"])
+@app.delete("/access", tags=["roles"])
 def revoke_access_endpoint(payload: AccessRevoke,
                            role_id: int | None = Query(None, description="Optional: remove only this role"),
                            db: Session = Depends(get_db),
@@ -457,13 +502,67 @@ def revoke_access_endpoint(payload: AccessRevoke,
     repo = crud.get_repo_by_id(db, payload.repo_id)
     if not repo:
         raise HTTPException(404, detail="Repository not found")
-    if repo.maintainer_id != current_user.user_id:
-        raise HTTPException(403, detail="Only the maintainer can revoke access")
+    
+    # Allow repo owner or admin to revoke access
+    is_owner = repo.maintainer_id == current_user.user_id
+    is_admin = current_user.tier == models.UserTier.admin
+    
+    if not (is_owner or is_admin):
+        raise HTTPException(403, detail="Only the repository owner or admin can revoke access")
         
     deleted = crud.revoke_access(db, payload.user_id, payload.repo_id, role_id)
     if deleted == 0:
         raise HTTPException(404, detail="Access relationship not found")
     return {"msg": f"{deleted} access row(s) removed"}
+
+@app.get("/repos/{repo_id}/members", tags=["repos"])
+def get_repo_members(repo_id: int,
+                     db: Session = Depends(get_db)):
+    """Get all members (developers) of a repository."""
+    repo = crud.get_repo_by_id(db, repo_id)
+    if not repo:
+        raise HTTPException(status_code=404, detail="Repository not found")
+    
+    members = crud.get_repo_members(db, repo_id)
+    return {
+        "repo_id": repo_id,
+        "repo_name": repo.reponame,
+        "owner_id": repo.maintainer_id,
+        "members": members
+    }
+
+@app.get("/repos/{repo_id}/available-users", tags=["repos"])
+def get_available_users_for_repo(repo_id: int,
+                                  db: Session = Depends(get_db),
+                                  current_user: models.User = Depends(auth.get_current_user)):
+    """Get list of users that can be added as developers to a repository."""
+    repo = crud.get_repo_by_id(db, repo_id)
+    if not repo:
+        raise HTTPException(status_code=404, detail="Repository not found")
+    
+    # Only owner or admin can see this list
+    is_owner = repo.maintainer_id == current_user.user_id
+    is_admin = current_user.tier == models.UserTier.admin
+    
+    if not (is_owner or is_admin):
+        raise HTTPException(403, detail="Only the repository owner or admin can view available users")
+    
+    # Get all users
+    all_users = db.query(User).all()
+    
+    # Get current members
+    current_members = crud.get_repo_members(db, repo_id)
+    member_ids = {m['user_id'] for m in current_members}
+    member_ids.add(repo.maintainer_id)  # Add owner to exclusion list
+    
+    # Filter out owner and existing members
+    available_users = [
+        {"user_id": user.user_id, "username": user.username, "email": user.email}
+        for user in all_users
+        if user.user_id not in member_ids
+    ]
+    
+    return {"users": available_users}
 
 @app.get("/health")
 def health_check():

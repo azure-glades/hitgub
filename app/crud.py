@@ -218,12 +218,20 @@ def list_roles(db: Session) -> list[Role]:
     return db.query(Role).order_by(Role.rolename).all()
 
 def grant_access(db: Session, user_id: int, repo_id: int, role_id: int) -> None:
-    # ensure FK rows exist (optional integrity check)
+    """Grant a user a specific role on a repo (typically 'developer')."""
+    # Check if user is already a developer or owner on this repo
+    repo = db.query(Repository).filter_by(repo_id=repo_id).first()
+    if not repo:
+        raise ValueError("Repository not found")
+    if repo.maintainer_id == user_id:
+        raise ValueError("User is already the repository owner")
+    
     exists = db.query(user_repo_roles).filter_by(
-        user_id=user_id, repo_id=repo_id, role_id=role_id
+        user_id=user_id, repo_id=repo_id
     ).first()
     if exists:
-        raise ValueError("Access relationship already exists")
+        raise ValueError("User already has access to this repository")
+    
     db.execute(
         user_repo_roles.insert(),
         {"user_id": user_id, "repo_id": repo_id, "role_id": role_id}
@@ -231,7 +239,7 @@ def grant_access(db: Session, user_id: int, repo_id: int, role_id: int) -> None:
     db.commit()
 
 def revoke_access(db: Session, user_id: int, repo_id: int, role_id: int | None = None) -> int:
-    """Returns number of rows deleted (0 = nothing)."""
+    """Revoke user access to repo. Returns number of rows deleted (0 = nothing)."""
     stmt = delete(user_repo_roles).where(
         (user_repo_roles.c.user_id == user_id) &
         (user_repo_roles.c.repo_id == repo_id)
@@ -240,20 +248,58 @@ def revoke_access(db: Session, user_id: int, repo_id: int, role_id: int | None =
         stmt = stmt.where(user_repo_roles.c.role_id == role_id)
     result = db.execute(stmt)
     db.commit()
-    return result
+    return result.rowcount
+
+def get_repo_members(db: Session, repo_id: int) -> list:
+    """Get all users with explicit roles on a repo (excludes owner)."""
+    rows = db.query(User, Role).join(
+        user_repo_roles, User.user_id == user_repo_roles.c.user_id
+    ).join(
+        Role, Role.role_id == user_repo_roles.c.role_id
+    ).filter(
+        user_repo_roles.c.repo_id == repo_id
+    ).all()
+    
+    return [
+        {
+            "user_id": user.user_id,
+            "username": user.username,
+            "role": role.rolename
+        }
+        for user, role in rows
+    ]
+
+def get_user_repo_role(db: Session, user_id: int, repo_id: int) -> Optional[str]:
+    """Get the role of a user on a specific repo. Returns 'owner', 'developer', 'tester', or None."""
+    # Check if user is the maintainer/owner
+    repo = db.query(Repository).filter_by(repo_id=repo_id).first()
+    if repo and repo.maintainer_id == user_id:
+        return "owner"
+    
+    # Check if user has an explicit role on the repo
+    # Join with Role to get the role name directly
+    result = db.query(Role).join(
+        user_repo_roles, Role.role_id == user_repo_roles.c.role_id
+    ).filter(
+        user_repo_roles.c.user_id == user_id,
+        user_repo_roles.c.repo_id == repo_id
+    ).first()
+    
+    if result:
+        return result.rolename
+    
+    # No explicit role found
+    return None
 
 def check_user_repo_access(db: Session, user_id: int, repo_id: int) -> bool:
     """Check if user has ANY role on the repo or is the maintainer."""
-    # Check if user is the maintainer
-    repo = db.query(Repository).filter_by(repo_id=repo_id).first()
-    if repo and repo.maintainer_id == user_id:
-        return True
-    
-    # Check if user has an explicit role on the repo
-    row = db.query(user_repo_roles).filter_by(
-        user_id=user_id, repo_id=repo_id
-    ).first()
-    return row is not None
+    role = get_user_repo_role(db, user_id, repo_id)
+    return role is not None
+
+def can_push_repo(db: Session, user_id: int, repo_id: int) -> bool:
+    """Check if user has push access (owner or developer role)."""
+    role = get_user_repo_role(db, user_id, repo_id)
+    return role in ["owner", "developer"]
 
 # ~~~ Fork
 def fork_repo(db: Session, source_repo_id: int, new_reponame: str, forker_user_id: int) -> Repository:

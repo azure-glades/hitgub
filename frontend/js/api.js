@@ -177,6 +177,9 @@ const AccessAPI = {
     },
     async searchUsers(repoId, q, page = 1, size = 20) {
         return API.get(`/repos/${repoId}/users`, { q, page, size });
+    },
+    async getMembers(repoId) {
+        return API.get(`/repos/${repoId}/members`);
     }
 };
 
