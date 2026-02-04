@@ -139,8 +139,8 @@ class AccessLog(Base):
     __tablename__ = "accesslog"
     repo_id = Column(Integer, ForeignKey("repository.repo_id"), primary_key=True, index=True)
     log_no = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("user.user_id"), primary_key=True, index=True)
-    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    user_id = Column(Integer, ForeignKey("user.user_id"), nullable=False, index=True)
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now(), nullable=False)
     action = Column(Enum(Action), nullable=False, index=True)
 
     # relationships
@@ -149,7 +149,11 @@ class AccessLog(Base):
         back_populates="has_log",
         foreign_keys=[repo_id]
     )
+    actor = relationship(
+        "User",
+        foreign_keys=[user_id]
+    )
 
     __table_args__ = (
-        UniqueConstraint("repo_id", "log_no"), # uniquesness
+            UniqueConstraint("repo_id", "log_no"), # uniqueness
     )

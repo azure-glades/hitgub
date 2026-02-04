@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CornHub - Where repositories are kernels on a corn cob</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <!-- Navigation Header -->
+    <header class="navbar">
+        <div class="nav-container">
+            <div class="nav-brand">
+                <i class="fas fa-seedling"></i>
+                <span class="brand-text">CornHub</span>
+            </div>
+            <nav class="nav-menu">
+                <a href="#" class="nav-link" data-page="home"><i class="fas fa-home"></i> Home</a>
+                <a href="#" class="nav-link" data-page="repositories"><i class="fas fa-folder"></i> Repositories</a>
+                <a href="#" class="nav-link" data-page="my-logs"><i class="fas fa-clipboard-list"></i> My Logs</a>
+                <a href="#" class="nav-link admin-only" data-page="users"><i class="fas fa-users"></i> Users</a>
+                <div class="nav-user">
+                    <span class="user-info" style="display: none;">
+                        <i class="fas fa-user"></i>
+                        <span id="current-username"></span>
+                    </span>
+                    <button class="btn btn-outline" id="auth-btn">Login</button>
+                </div>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+        <!-- Home Page -->
+        <section id="page-home" class="page active">
+            <div class="hero">
+                <div class="hero-content">
+                    <h1>🌽 Welcome to CornHub</h1>
+                    <p class="hero-subtitle">Where repositories are kernels on a corn cob</p>
+                    <p class="hero-description">
+                        A private repository management system that's better than GitHub. 
+                        Manage your code repositories, track issues, and collaborate with your team.
+                    </p>
+                    <div class="hero-actions">
+                        <button class="btn btn-primary" data-action="get-started">Get Started</button>
+                        <button class="btn btn-outline" data-action="learn-more">Learn More</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="features">
+                <div class="container">
+                    <h2>Features</h2>
+                    <div class="feature-grid">
+                        <div class="feature-card">
+                            <i class="fas fa-code-branch"></i>
+                            <h3>Git Repository Management</h3>
+                            <p>Create and manage Git repositories with full clone/push support</p>
+                        </div>
+                        <div class="feature-card">
+                            <i class="fas fa-bug"></i>
+                            <h3>Issue Tracking</h3>
+                            <p>Track bugs, features, and discussions with threaded comments</p>
+                        </div>
+                        <div class="feature-card">
+                            <i class="fas fa-shield-alt"></i>
+                            <h3>Role-Based Access</h3>
+                            <p>Admin, developer, and tester roles with repository-level permissions</p>
+                        </div>
+                        <div class="feature-card">
+                            <i class="fas fa-database"></i>
+                            <h3>Hybrid Database</h3>
+                            <p>PostgreSQL for structured data, MongoDB for flexible issue storage</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Repositories Page -->
+        <section id="page-repositories" class="page">
+            <div class="container">
+                <div class="page-header">
+                    <h1><i class="fas fa-folder"></i> Repositories</h1>
+                    <button class="btn btn-primary" id="create-repo-btn">
+                        <i class="fas fa-plus"></i> New Repository
+                    </button>
+                </div>
+
+                <div class="content-area">
+                    <div id="repo-list" class="repo-list">
+                        <div class="loading" id="repo-loading">
+                            <i class="fas fa-spinner fa-spin"></i> Loading repositories...
+                        </div>
+                    </div>
+                    <div id="repo-pagination" class="pagination"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Repository Detail Page -->
+        <section id="page-repo-detail" class="page">
+            <div class="container">
+                <div class="repo-header">
+                    <div class="repo-info">
+                        <h1 id="repo-title"></h1>
+                        <p id="repo-maintainer"></p>
+                    </div>
+                    <div class="repo-actions">
+                        <button class="btn btn-outline" id="fork-repo-btn">
+                            <i class="fas fa-code-branch"></i> Fork
+                        </button>
+                        <button class="btn btn-outline" id="manage-access-btn" style="display: none;">
+                            <i class="fas fa-user-shield"></i> Manage Access
+                        </button>
+                        <button class="btn btn-primary" id="create-issue-btn">
+                            <i class="fas fa-bug"></i> New Issue
+                        </button>
+                        <button class="btn btn-danger" id="delete-repo-btn" style="display: none;">
+                            <i class="fas fa-trash"></i> Delete
+                        </button>
+                    </div>
+                </div>
+
+                <div class="repo-tabs">
+                    <button class="tab-btn active" data-tab="issues">Issues</button>
+                    <button class="tab-btn" data-tab="info">Repository Info</button>
+                    <button class="tab-btn" data-tab="logs" id="repo-logs-tab" style="display: none;">Access Logs</button>
+                </div>
+
+                <div class="tab-content">
+                    <div id="tab-issues" class="tab-pane active">
+                        <div id="issue-list" class="issue-list">
+                            <div class="loading">
+                                <i class="fas fa-spinner fa-spin"></i> Loading issues...
+                            </div>
+                        </div>
+                        <div id="issue-pagination" class="pagination"></div>
+                    </div>
+                    <div id="tab-info" class="tab-pane">
+                        <div class="repo-clone-info">
+                            <h3>Clone Repository</h3>
+                            <div class="clone-url">
+                                <code id="clone-url"></code>
+                                <button class="btn btn-small" onclick="copyCloneUrl()">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="repo-files-info">
+                            <h3>Files</h3>
+                            <div id="repo-files" class="file-list">
+                                <div class="loading">
+                                    <i class="fas fa-spinner fa-spin"></i> Loading files...
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="tab-logs" class="tab-pane">
+                        <div class="repo-logs">
+                            <h3>Access Logs</h3>
+                            <div id="repo-logs-list" class="log-list">
+                                <div class="loading"><i class="fas fa-spinner fa-spin"></i> Loading logs...</div>
+                            </div>
+                            <div id="repo-logs-pagination" class="pagination"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- My Access Logs Page -->
+        <section id="page-my-logs" class="page">
+            <div class="container">
+                <div class="page-header">
+                    <h1><i class="fas fa-clipboard-list"></i> My Access Logs</h1>
+                </div>
+                <div class="content-area">
+                    <div id="my-logs-list" class="log-list">
+                        <div class="loading"><i class="fas fa-spinner fa-spin"></i> Loading logs...</div>
+                    </div>
+                    <div id="my-logs-pagination" class="pagination"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Issue Detail Page -->
+        <section id="page-issue-detail" class="page">
+            <div class="container">
+                <div class="issue-header">
+                    <div class="issue-info">
+                        <h1 id="issue-title"></h1>
+                        <div class="issue-meta">
+                            <span class="issue-number">#<span id="issue-number"></span></span>
+                            <span class="issue-status" id="issue-status"></span>
+                            <span class="issue-author">opened by <span id="issue-author"></span></span>
+                            <span class="issue-date" id="issue-date"></span>
+                        </div>
+                    </div>
+                    <div class="issue-actions">
+                        <button class="btn btn-outline" id="toggle-issue-status" style="display: none;">
+                            <i class="fas fa-check-circle"></i> <span id="toggle-status-text">Close Issue</span>
+                        </button>
+                        <button class="btn btn-outline" id="back-to-repo">
+                            <i class="fas fa-arrow-left"></i> Back to Repository
+                        </button>
+                    </div>
+                </div>
+
+                <div class="issue-content">
+                    <div class="issue-body" id="issue-body"></div>
+                </div>
+
+                <div class="comments-section">
+                    <h3>Comments</h3>
+                    <div id="comments-list" class="comments-list"></div>
+                    
+                    <div class="add-comment">
+                        <h4>Add a comment</h4>
+                        <form id="comment-form">
+                            <textarea id="comment-body" placeholder="Leave a comment..."></textarea>
+                            <button type="submit" class="btn btn-primary">Comment</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Users Management Page (Admin Only) -->
+        <section id="page-users" class="page">
+            <div class="container">
+                <div class="page-header">
+                    <h1><i class="fas fa-users"></i> User Management</h1>
+                    <button class="btn btn-primary" id="create-user-btn">
+                        <i class="fas fa-user-plus"></i> Create User
+                    </button>
+                </div>
+
+                <div class="content-area">
+                    <div id="user-list" class="user-list">
+                        <div class="loading">
+                            <i class="fas fa-spinner fa-spin"></i> Loading users...
+                        </div>
+                    </div>
+                    <div id="user-pagination" class="pagination"></div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Modals -->
+    <!-- Login Modal -->
+    <div id="login-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Login to CornHub</h2>
+                <button class="close-btn">&times;</button>
+            </div>
+            <form id="login-form">
+                <div class="form-group">
+                    <label for="login-username">Username</label>
+                    <input type="text" id="login-username" required>
+                </div>
+                <div class="form-group">
+                    <label for="login-password">Password</label>
+                    <input type="password" id="login-password" required>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-outline" id="show-signup">Sign Up Instead</button>
+                    <button type="submit" class="btn btn-primary">Login</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Create Repository Modal -->
+    <div id="repo-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Create New Repository</h2>
+                <button class="close-btn">&times;</button>
+            </div>
+            <form id="repo-form">
+                <div class="form-group">
+                    <label for="repo-name">Repository Name</label>
+                    <input type="text" id="repo-name" required placeholder="my-awesome-project">
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-outline" onclick="closeModal('repo-modal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Create Repository</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Create Issue Modal -->
+    <div id="issue-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Create New Issue</h2>
+                <button class="close-btn">&times;</button>
+            </div>
+            <form id="issue-form">
+                <div class="form-group">
+                    <label for="new-issue-title">Title</label>
+                    <input type="text" id="new-issue-title" required placeholder="Brief description of the issue">
+                </div>
+                <div class="form-group">
+                    <label for="issue-description">Description</label>
+                    <textarea id="issue-description" required placeholder="Detailed description of the issue..."></textarea>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-outline" onclick="closeModal('issue-modal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Create Issue</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Create User Modal -->
+    <div id="user-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Create New User</h2>
+                <button class="close-btn">&times;</button>
+            </div>
+            <form id="user-form">
+                <div class="form-group">
+                    <label for="user-username">Username</label>
+                    <input type="text" id="user-username" required>
+                </div>
+                <div class="form-group">
+                    <label for="user-email">Email</label>
+                    <input type="email" id="user-email" required>
+                </div>
+                <div class="form-group">
+                    <label for="user-password">Password</label>
+                    <input type="password" id="user-password" required>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-outline" onclick="closeModal('user-modal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Create User</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Fork Repository Modal -->
+    <div id="fork-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Fork Repository</h2>
+                <button class="close-btn">&times;</button>
+            </div>
+            <form id="fork-form">
+                <div class="form-group">
+                    <label for="fork-name">New Repository Name</label>
+                    <input type="text" id="fork-name" required placeholder="my-forked-repo">
+                    <small>This will create a copy of the repository under your account</small>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-outline" onclick="closeModal('fork-modal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Fork Repository</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="loading-spinner">
+            <i class="fas fa-spinner fa-spin"></i>
+            <p>Loading...</p>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/static/js/auth.js"></script>
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

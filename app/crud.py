@@ -5,7 +5,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, delete
 from math import ceil
 from .models import User, Repository, Issue, Role, user_repo_roles, UserTier
-from .json_dto import UserCreate, UserResponse, RepoCreate, RepoResponse, IssueCreate, IssueDetailResponse, IssuePage, IssueItem, PageMeta, RepoPage, RepoItem, UserItem, UserPage, UserTierUpdate
+from .json_dto import UserCreate, UserResponse, RepoCreate, RepoResponse, IssueCreate, IssueDetailResponse, IssuePage, IssueItem, PageMeta, RepoPage, RepoItem, UserItem, UserPage, UserTierUpdate, AccessLogItem, AccessLogPage
+from .models import AccessLog, Action
 from .git_ops import init_bare
 from .mongo_store import create_issue_doc, add_comment, get_issue
 import bcrypt
@@ -94,7 +95,8 @@ def list_repos(db: Session, page: int = 1, size: int = 20) -> RepoPage:
             RepoItem(
                 repo_id=repo.repo_id,
                 reponame=repo.reponame,
-                maintainer_name=username
+                maintainer_name=username,
+                maintainer_id=repo.maintainer_id
             )
             for repo, username in rows
         ]
@@ -163,7 +165,9 @@ def get_issue_thread(db: Session,
         issue_num=issue_num,
         title=issue_obj.title,
         author_id=issue_obj.author_id,
+        author=issue_obj.author.username if issue_obj.author else "Unknown",
         body=thread_doc['body'],
+        status=issue_obj.status.value,
         created_at=issue_obj.created_at,
         comments=thread_doc['comments']
     )
@@ -181,9 +185,23 @@ def list_issues(db: Session,
               .limit(size)
               .all())
     pages = ceil(total / size) if total else 1
+    
+    # Build items with author username
+    items = []
+    for issue in rows:
+        item_dict = {
+            "issue_num": issue.issue_num,
+            "title": issue.title or "",
+            "author_id": issue.author_id,
+            "author": issue.author.username if issue.author else "Unknown",
+            "status": issue.status.value,
+            "created_at": issue.created_at
+        }
+        items.append(IssueItem(**item_dict))
+    
     return IssuePage(
         meta=PageMeta(page=page, size=size, total_size=total, total_pages=pages),
-        items=[IssueItem.model_validate(r) for r in rows]
+        items=items
     )
 
 # ~~~ role and access
@@ -225,8 +243,146 @@ def revoke_access(db: Session, user_id: int, repo_id: int, role_id: int | None =
     return result
 
 def check_user_repo_access(db: Session, user_id: int, repo_id: int) -> bool:
-    """Check if user has ANY role on the repo."""
+    """Check if user has ANY role on the repo or is the maintainer."""
+    # Check if user is the maintainer
+    repo = db.query(Repository).filter_by(repo_id=repo_id).first()
+    if repo and repo.maintainer_id == user_id:
+        return True
+    
+    # Check if user has an explicit role on the repo
     row = db.query(user_repo_roles).filter_by(
         user_id=user_id, repo_id=repo_id
     ).first()
     return row is not None
+
+# ~~~ Fork
+def fork_repo(db: Session, source_repo_id: int, new_reponame: str, forker_user_id: int) -> Repository:
+    """
+    Fork a repository - creates a new repo linked to the original.
+    """
+    from .git_ops import fork_bare_repo
+    
+    # Get source repository
+    source_repo = db.query(Repository).filter_by(repo_id=source_repo_id).first()
+    if not source_repo:
+        raise ValueError("Source repository not found")
+    
+    # Create new repository record
+    forked_repo = Repository(
+        reponame=new_reponame,
+        maintainer_id=forker_user_id,
+        fork_of_id=source_repo_id
+    )
+    
+    try:
+        # Clone the git repository on disk
+        fork_bare_repo(source_repo.reponame, new_reponame)
+    except FileExistsError:
+        raise ValueError("Repository with that name already exists on disk")
+    except Exception as e:
+        raise ValueError(f"Failed to fork repository: {str(e)}")
+    
+    try:
+        db.add(forked_repo)
+        db.commit()
+        db.refresh(forked_repo)
+        return forked_repo
+    except Exception as e:
+        db.rollback()
+        # Try to clean up the cloned repo if DB insertion failed
+        import shutil
+        from .git_ops import REPO_ROOT
+        target_path = REPO_ROOT / f"{new_reponame}.git"
+        if target_path.exists():
+            shutil.rmtree(target_path)
+        raise e
+
+# ~~~ Access Log
+def log_action(db: Session, repo_id: int, user_id: int, action: Action) -> AccessLog:
+    """
+    Create an access log entry for a repository action.
+    Auto-increments log_no for each repository.
+    """
+    max_log_no = db.query(func.max(AccessLog.log_no)).filter_by(repo_id=repo_id).scalar() or 0
+    next_log_no = max_log_no + 1
+
+    log_entry = AccessLog(
+        repo_id=repo_id,
+        log_no=next_log_no,
+        user_id=user_id,
+        action=action
+    )
+    db.add(log_entry)
+    db.commit()
+    db.refresh(log_entry)
+    return log_entry
+
+def get_repo_access_logs(db: Session, repo_id: int, page: int = 1, size: int = 20) -> AccessLogPage:
+    """
+    Get access logs for a specific repository.
+    Only repo owners should be able to call this.
+    """
+    offset = (page - 1) * size
+    total = db.query(func.count(AccessLog.log_no)).filter_by(repo_id=repo_id).scalar()
+
+    rows = (db.query(AccessLog, User.username, Repository.reponame)
+              .join(User, User.user_id == AccessLog.user_id)
+              .join(Repository, Repository.repo_id == AccessLog.repo_id)
+              .filter(AccessLog.repo_id == repo_id)
+              .order_by(AccessLog.updated_at.desc())
+              .offset(offset)
+              .limit(size)
+              .all())
+
+    pages = ceil(total / size) if total else 1
+
+    return AccessLogPage(
+        meta=PageMeta(page=page, size=size, total_size=total, total_pages=pages),
+        items=[
+            AccessLogItem(
+                repo_id=log.repo_id,
+                log_no=log.log_no,
+                user_id=log.user_id,
+                username=username,
+                reponame=reponame,
+                action=log.action.value,
+                created_at=log.updated_at
+            )
+            for log, username, reponame in rows
+        ]
+    )
+
+def get_user_access_logs(db: Session, user_id: int, page: int = 1, size: int = 20) -> AccessLogPage:
+    """
+    Get all access logs for a specific user.
+    Users can see their own access logs.
+    """
+    offset = (page - 1) * size
+    total = db.query(func.count(AccessLog.log_no)).filter_by(user_id=user_id).scalar()
+
+    rows = (db.query(AccessLog, User.username, Repository.reponame)
+              .join(User, User.user_id == AccessLog.user_id)
+              .join(Repository, Repository.repo_id == AccessLog.repo_id)
+              .filter(AccessLog.user_id == user_id)
+              .order_by(AccessLog.updated_at.desc())
+              .offset(offset)
+              .limit(size)
+              .all())
+
+    pages = ceil(total / size) if total else 1
+
+    return AccessLogPage(
+        meta=PageMeta(page=page, size=size, total_size=total, total_pages=pages),
+        items=[
+            AccessLogItem(
+                repo_id=log.repo_id,
+                log_no=log.log_no,
+                user_id=log.user_id,
+                username=username,
+                reponame=reponame,
+                action=log.action.value,
+                created_at=log.updated_at
+            )
+            for log, username, reponame in rows
+        ]
+    )

@@ -25,6 +25,17 @@ class RepoItem(BaseModel):
     repo_id: int
     reponame: str
     maintainer_name: str
+    maintainer_id: int
+
+class RepoFile(BaseModel):
+    name: str
+    path: str
+    type: str  # "blob" or "tree"
+
+class RepoFilesResponse(BaseModel):
+    repo_id: int
+    reponame: str
+    files: list[RepoFile]
 # ~~~
 class UserCreate(BaseModel):
     username : str
@@ -82,7 +93,9 @@ class IssueDetailResponse(BaseModel):
     issue_num: int
     title: str
     author_id: int
+    author: str
     body: str
+    status: str
     created_at: datetime
     comments: list[CommentItem]
 
@@ -93,6 +106,7 @@ class IssueItem(BaseModel):
     issue_num: int
     title: str
     author_id: int
+    author: str = ""
     status: str
     created_at: datetime
 # issue page
@@ -123,3 +137,29 @@ class AccessGrant(BaseModel):
 class AccessRevoke(BaseModel):
     user_id: int
     repo_id: int
+
+# ~~~ Fork
+class ForkCreate(BaseModel):
+    new_reponame: str
+
+class ForkResponse(BaseModel):
+    repo_id: int
+    reponame: str
+    maintainer_id: int
+    fork_of_id: int
+    class Config:
+        from_attributes=True
+
+# ~~~ Access Log
+class AccessLogItem(BaseModel):
+    repo_id: int
+    log_no: int
+    user_id: int
+    username: str
+    reponame: str
+    action: str
+    created_at: datetime
+
+class AccessLogPage(BaseModel):
+    meta: PageMeta
+    items: list[AccessLogItem]
