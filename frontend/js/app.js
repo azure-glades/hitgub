@@ -34,6 +34,13 @@ class App {
             }
         });
 
+        // Create repository (from my-repos page)
+        document.getElementById('create-repo-btn-my')?.addEventListener('click', () => {
+            if (auth.requireAuth() && auth.requireDeveloper()) {
+                openModal('repo-modal');
+            }
+        });
+
         // Create user
         document.getElementById('create-user-btn')?.addEventListener('click', () => {
             if (auth.requireAuth() && auth.requireAdmin()) {
@@ -73,6 +80,18 @@ class App {
             openModal('fork-modal');
         }
     });
+
+        // My Repos filter
+        document.getElementById('my-repos-filter')?.addEventListener('change', (e) => {
+            loadMyRepos(1, e.target.value);
+        });
+
+        // Create user form (admin page)
+        document.getElementById('create-user-form-admin')?.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            await this.handleCreateUserAdmin();
+        });
+
         // Form submissions
         this.initializeForms();
     }
@@ -106,6 +125,12 @@ class App {
         document.getElementById('fork-form')?.addEventListener('submit', async (e) => {
             e.preventDefault();
             await this.handleForkRepo();
+        });
+
+        // Add member form
+        document.getElementById('add-member-form')?.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            await this.handleAddMember();
         });
     }
 
@@ -334,6 +359,57 @@ class App {
         }
     }
 
+    async handleAddMember() {
+        try {
+            const userId = document.getElementById('member-user').value;
+            
+            if (!userId) {
+                showNotification('Please select a user', 'error');
+                return;
+            }
+
+            if (!this.currentRepo) {
+                showNotification('No repository selected', 'error');
+                return;
+            }
+
+            console.log('Adding member:', {
+                userId: parseInt(userId),
+                repoId: this.currentRepo.repo_id,
+                currentUser: auth.currentUser
+            });
+
+            showLoading(true);
+            
+            // Get developer role ID
+            const roles = await RoleAPI.list();
+            const developerRole = roles.find(r => r.rolename === 'developer');
+            
+            if (!developerRole) {
+                showNotification('Developer role not found in system', 'error');
+                return;
+            }
+
+            console.log('Using developer role:', developerRole);
+
+            // Grant access
+            await AccessAPI.grant(parseInt(userId), this.currentRepo.repo_id, developerRole.role_id);
+            
+            closeModal('add-member-modal');
+            document.getElementById('add-member-form').reset();
+            showNotification('Developer added successfully!', 'success');
+            
+            // Reload members list
+            await loadRepoMembers(this.currentRepo.repo_id);
+
+        } catch (error) {
+            console.error('Error adding member:', error);
+            handleAPIError(error, 'adding member to repository');
+        } finally {
+            showLoading(false);
+        }
+    }
+
     async handleToggleIssueStatus() {
         try {
             if (!this.currentRepo || !this.currentIssue) {
@@ -383,6 +459,44 @@ class App {
             showLoading(false);
         }
     }
+
+    async handleCreateUserAdmin() {
+        try {
+            const username = document.getElementById('admin-username').value;
+            const email = document.getElementById('admin-email').value;
+            const password = document.getElementById('admin-password').value;
+            const tier = document.getElementById('admin-tier').value;
+
+            if (!username.trim() || !email.trim() || !password.trim()) {
+                showNotification('All fields are required', 'error');
+                return;
+            }
+
+            showLoading(true);
+
+            // Create the user
+            const userData = {
+                username: username.trim(),
+                email: email.trim(),
+                password: password.trim()
+            };
+
+            const response = await UserAPI.create(userData);
+
+            // Update user tier if not developer (default)
+            if (tier !== 'developer') {
+                await UserAPI.updateTier(response.user_id, { tier });
+            }
+
+            document.getElementById('create-user-form-admin').reset();
+            showNotification(`User '${username}' created successfully!`, 'success');
+
+        } catch (error) {
+            handleAPIError(error, 'creating user account');
+        } finally {
+            showLoading(false);
+        }
+    }
 }
 
 // Page navigation
@@ -413,9 +527,23 @@ async function loadPageContent(pageName) {
             case 'repositories':
                 await loadRepositories();
                 break;
+            case 'my-repos':
+                if (auth.requireAuth()) {
+                    await loadMyRepos(1, 'all');
+                }
+                break;
             case 'users':
                 if (auth.isAdmin()) {
                     await loadUsers();
+                } else {
+                    showPage('home');
+                    showNotification('Access denied', 'error');
+                }
+                break;
+            case 'create-account':
+                if (auth.isAdmin()) {
+                    // Just reset the form when page loads
+                    document.getElementById('create-user-form-admin')?.reset();
                 } else {
                     showPage('home');
                     showNotification('Access denied', 'error');
@@ -502,12 +630,25 @@ async function showRepoDetail(repoId) {
 
         // Show access log tab only for owners/admins
         const logsTab = document.getElementById('repo-logs-tab');
+        const membersTab = document.getElementById('repo-members-tab');
         const logsPane = document.getElementById('tab-logs');
         if (logsTab) {
             logsTab.style.display = isOwner ? 'inline-flex' : 'none';
             if (!isOwner && logsPane?.classList.contains('active')) {
                 app.switchTab('issues');
             }
+        }
+        
+        // Show members tab for owners
+        if (membersTab) {
+            membersTab.style.display = isOwner ? 'inline-flex' : 'none';
+        }
+        
+        // Show add member button for owners
+        const addMemberBtn = document.getElementById('add-member-btn');
+        if (addMemberBtn) {
+            addMemberBtn.style.display = isOwner ? 'inline-flex' : 'none';
+            addMemberBtn.addEventListener('click', () => openAddMemberModal());
         }
         
         showPage('repo-detail');
@@ -526,6 +667,7 @@ async function showRepoDetail(repoId) {
         await loadRepoFiles(repoId);
         if (isOwner) {
             await loadRepoLogs(repoId);
+            await loadRepoMembers(repoId);
         }
         
     } catch (error) {
@@ -687,6 +829,52 @@ async function loadRepoLogs(repoId, page = 1) {
             `;
         }
     }
+}
+
+async function loadRepoMembers(repoId) {
+    try {
+        const response = await AccessAPI.getMembers(repoId);
+        renderRepoMembers(response);
+    } catch (error) {
+        handleAPIError(error, 'loading repository members');
+        const container = document.getElementById('repo-members-list');
+        if (container) {
+            container.innerHTML = `
+                <div class="error-message">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <p>Failed to load members. Please try again.</p>
+                </div>
+            `;
+        }
+    }
+}
+
+function renderRepoMembers(data) {
+    const container = document.getElementById('repo-members-list');
+    if (!container) return;
+
+    if (!data.members || data.members.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-users"></i>
+                <h3>No members yet</h3>
+                <p>Add developers to allow them to push code to this repository.</p>
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = data.members.map(member => `
+        <div class="member-card">
+            <div class="member-info">
+                <strong>${member.username}</strong>
+                <span class="member-role">${member.role}</span>
+            </div>
+            <button class="btn btn-small btn-danger" onclick="removeMember(${data.repo_id}, ${member.user_id}, '${member.username}')">
+                <i class="fas fa-trash"></i> Remove
+            </button>
+        </div>
+    `).join('');
 }
 
 function renderRepoLogs(data, repoId) {
@@ -982,6 +1170,55 @@ function closeModal(modalId) {
     modal.classList.remove('active');
 }
 
+// Add member modal
+async function openAddMemberModal() {
+    try {
+        if (!app.currentRepo) {
+            showNotification('No repository selected', 'error');
+            return;
+        }
+        
+        // Fetch available users for this repo
+        const response = await API.get(`/repos/${app.currentRepo.repo_id}/available-users`);
+        const userSelect = document.getElementById('member-user');
+        
+        // Populate user list
+        userSelect.innerHTML = '<option value="">-- Choose a user --</option>';
+        response.users.forEach(user => {
+            const option = document.createElement('option');
+            option.value = user.user_id;
+            option.textContent = `${user.username} (${user.email})`;
+            userSelect.appendChild(option);
+        });
+        
+        if (response.users.length === 0) {
+            userSelect.innerHTML = '<option value="">-- No users available --</option>';
+            showNotification('All users are already members or owner of this repository', 'info');
+        }
+        
+        openModal('add-member-modal');
+    } catch (error) {
+        handleAPIError(error, 'loading available users');
+    }
+}
+
+async function removeMember(repoId, userId, username) {
+    if (!confirm(`Remove ${username} as developer from this repository?`)) {
+        return;
+    }
+    
+    try {
+        showLoading(true);
+        await AccessAPI.revoke(userId, repoId);
+        showNotification(`${username} has been removed from the repository`, 'success');
+        await loadRepoMembers(repoId);
+    } catch (error) {
+        handleAPIError(error, 'removing member');
+    } finally {
+        showLoading(false);
+    }
+}
+
 // Copy clone URL
 function copyCloneUrl() {
     const url = document.getElementById('clone-url').textContent;
@@ -992,6 +1229,86 @@ function copyCloneUrl() {
     });
 }
 
+// Load My Repositories
+async function loadMyRepos(page = 1, filter = 'all') {
+    try {
+        showLoading(true);
+        
+        if (!auth.isAuthenticated()) {
+            showNotification('Please log in first', 'error');
+            showPage('home');
+            return;
+        }
+
+        // Get user's repos with their roles
+        const response = await API.get('/user/my-repos');
+        const repos = response.repos || [];
+        
+        // Filter repos based on the filter parameter
+        let filteredRepos = repos;
+        if (filter === 'owner') {
+            filteredRepos = repos.filter(repo => repo.role === 'owner');
+        } else if (filter === 'developer') {
+            filteredRepos = repos.filter(repo => repo.role === 'developer');
+        }
+        // 'all' - show all repos (owned and developer)
+        else {
+            filteredRepos = repos.filter(repo => repo.role === 'owner' || repo.role === 'developer');
+        }
+
+        renderMyRepos(filteredRepos, filter);
+    } catch (error) {
+        handleAPIError(error, 'loading your repositories');
+        document.getElementById('my-repos-list').innerHTML = `
+            <div class="error-message">
+                <i class="fas fa-exclamation-triangle"></i>
+                <p>Failed to load repositories. Please try again.</p>
+            </div>
+        `;
+    } finally {
+        showLoading(false);
+    }
+}
+
+function renderMyRepos(repos, filter = 'all') {
+    const container = document.getElementById('my-repos-list');
+    
+    if (!repos || repos.length === 0) {
+        let filterText = '';
+        if (filter === 'owner') {
+            filterText = ' you own';
+        } else if (filter === 'developer') {
+            filterText = ' you\'re a developer on';
+        } else {
+            filterText = ' you have access to';
+        }
+        
+        container.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-folder-open"></i>
+                <h3>No repositories${filterText}</h3>
+                <p>Create or ask to be added to a repository to get started!</p>
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = repos.map(repo => {
+        return `
+            <div class="repo-card" onclick="showRepoDetail(${repo.repo_id})">
+                <div style="display: flex; justify-content: space-between; align-items: start; width: 100%;">
+                    <div style="flex: 1;">
+                        <h3><i class="fas fa-folder"></i> ${repo.reponame}</h3>
+                        <div class="repo-meta">
+                            <span><i class="fas fa-user"></i> ${repo.maintainer_name}</span>
+                            <span class="repo-role">${repo.role.charAt(0).toUpperCase() + repo.role.slice(1)}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
 // Handle browser back/forward buttons
 window.addEventListener('popstate', (event) => {
     if (event.state && event.state.page) {

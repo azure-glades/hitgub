@@ -138,6 +138,17 @@ class AccessRevoke(BaseModel):
     user_id: int
     repo_id: int
 
+class RepoMember(BaseModel):
+    user_id: int
+    username: str
+    role: str
+
+class RepoMembersResponse(BaseModel):
+    repo_id: int
+    repo_name: str
+    owner_id: int
+    members: list[RepoMember]
+
 # ~~~ Fork
 class ForkCreate(BaseModel):
     new_reponame: str
